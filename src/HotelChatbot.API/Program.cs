@@ -58,6 +58,12 @@ builder.Services.Configure<OpenAIOptions>(
     builder.Configuration.GetSection("OpenAI"));
 builder.Services.AddHttpClient<OpenAIService>();
 
+// Text Preprocessor (gpt-4o-mini)
+builder.Services.Configure<TextPreprocessorOptions>(
+    builder.Configuration.GetSection("TextPreprocessor"));
+builder.Services.AddHttpClient<TextPreprocessorService>();
+builder.Services.AddScoped<ITextPreprocessorService, TextPreprocessorService>();
+
 builder.Services.AddScoped<IHotelAIService>(sp =>
 {
     var provider = sp.GetRequiredService<IOptions<AIProviderOptions>>().Value.Provider;

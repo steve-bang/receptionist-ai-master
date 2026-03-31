@@ -117,6 +117,16 @@ public interface IMessengerWebhookService
     Task HandleWebhookAsync(string payloadJson);
 }
 
+public interface ITextPreprocessorService
+{
+    /// <summary>
+    /// Normalize và enrich message trước khi đưa vào intent analysis và RAG.
+    /// Dùng gpt-4o-mini để phục hồi dấu tiếng Việt, extract key terms, tạo RAG query tối ưu.
+    /// Tự động skip nếu message quá ngắn hoặc đã sạch.
+    /// </summary>
+    Task<PreprocessedMessage> PreprocessAsync(string text, string? hotelId = null, string? sessionId = null);
+}
+
 public interface IZaloWebhookService
 {
     bool VerifySignature(string payload, string? signatureHeader);

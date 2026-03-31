@@ -9,6 +9,7 @@ namespace HotelChatbot.Infrastructure.Services;
 public class ConversationService : IConversationService
 {
     private readonly IHotelAIService _ai;
+    private readonly ITextPreprocessorService _preprocessor;
     private readonly IRagContextService _ragContext;
     private readonly IHotelDataService _hotelData;
     private readonly IBookingService _bookingService;
@@ -30,6 +31,7 @@ public class ConversationService : IConversationService
 
     public ConversationService(
         IHotelAIService ai,
+        ITextPreprocessorService preprocessor,
         IRagContextService ragContext,
         IHotelDataService hotelData,
         IBookingService bookingService,
@@ -37,6 +39,7 @@ public class ConversationService : IConversationService
         ILogger<ConversationService> logger)
     {
         _ai = ai;
+        _preprocessor = preprocessor;
         _ragContext = ragContext;
         _hotelData = hotelData;
         _bookingService = bookingService;
@@ -121,19 +124,30 @@ public class ConversationService : IConversationService
             };
         }
 
+        // [PARALLEL] Preprocessing + system prompt chạy đồng thời để tiết kiệm latency
+        // Preprocessing dùng gpt-4o-mini: phục hồi dấu tiếng Việt, tạo RAG query tối ưu, detect language
+        var preprocessTask = _preprocessor.PreprocessAsync(request.Message, request.HotelId, sessionId);
+        var systemPromptTask = _ai.BuildSystemPromptAsync(request.HotelId);
+        await Task.WhenAll(preprocessTask, systemPromptTask);
+
+        var preprocessed = preprocessTask.Result;
+        var systemPrompt = systemPromptTask.Result;
+
+        // Dùng normalized text cho intent analysis — tốt hơn khi user nhắn thiếu dấu
+        var messageForIntent = preprocessed.Skipped ? request.Message : preprocessed.Normalized;
+
         // Analyze intent
-        var intent = await _ai.AnalyzeIntentAsync(request.Message, session);
-        ApplyDeterministicRelativeDateOverrides(request.Message, intent.ExtractedEntities);
+        var intent = await _ai.AnalyzeIntentAsync(messageForIntent, session);
+        ApplyDeterministicRelativeDateOverrides(messageForIntent, intent.ExtractedEntities);
 
         // Update booking draft with extracted entities
         UpdateBookingDraftFromEntities(session, intent.ExtractedEntities);
 
-        // Build system prompt with fresh hotel data
-        var systemPrompt = await _ai.BuildSystemPromptAsync(request.HotelId);
-
+        // Dùng RAG query tối ưu từ preprocessor — chính xác hơn raw message
+        var ragQuery = preprocessed.Skipped ? request.Message : preprocessed.RagQuery;
         var ragKnowledgeContext = await _ragContext.BuildKnowledgeContextAsync(
             request.HotelId,
-            request.Message,
+            ragQuery,
             intent.Intent,
             sessionId);
         if (!string.IsNullOrWhiteSpace(ragKnowledgeContext))

@@ -54,6 +54,27 @@ public class BookingDraftDto
     }
 }
 
+// ============================================================
+// TEXT PREPROCESSING
+// ============================================================
+public class PreprocessedMessage
+{
+    /// <summary>Văn bản gốc từ user, không thay đổi.</summary>
+    public string Original { get; set; } = "";
+    /// <summary>Văn bản đã normalize: phục hồi dấu, sửa typo phổ biến, chuẩn hoá spacing.</summary>
+    public string Normalized { get; set; } = "";
+    /// <summary>Query tối ưu cho semantic search trong RAG — loại filler words, giữ lại hotel-domain terms.</summary>
+    public string RagQuery { get; set; } = "";
+    /// <summary>Ngôn ngữ phát hiện được: "vi", "en", "mixed".</summary>
+    public string Language { get; set; } = "vi";
+    /// <summary>Các từ khoá domain hotel được extract (phòng, view, giá, đặt, check-in, v.v.).</summary>
+    public List<string> KeyTerms { get; set; } = new();
+    /// <summary>true nếu original text bị thiếu dấu tiếng Việt và đã được phục hồi.</summary>
+    public bool WasNormalized { get; set; }
+    /// <summary>true nếu preprocessing được skip (message quá ngắn, đã sạch, hoặc low-value).</summary>
+    public bool Skipped { get; set; }
+}
+
 public class RoomSuggestionDto
 {
     public string RoomId { get; set; } = "";
