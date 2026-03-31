@@ -17,7 +17,7 @@ Danh sách task triển khai theo Sprint Plan từ `docs/reports/CEO_DECISION_20
 
 ---
 
-### TASK-01 · Hậu-booking state guard
+### TASK-01 · Hậu-booking state guard `[x]`
 
 **Priority:** P0 · **Effort:** M · **Files:** `DTOs.cs`, `ConversationService.cs`
 
@@ -26,17 +26,17 @@ Sau booking thành công, `session.BookingDraft` vẫn còn đủ dữ liệu. N
 
 **Việc cần làm:**
 
-- [ ] Thêm enum `BookingSessionStatus` vào `DTOs.cs`
+- [x] Thêm enum `BookingSessionStatus` vào `DTOs.cs`
   ```csharp
   public enum BookingSessionStatus { None, InProgress, Completed }
   ```
-- [ ] Thêm field `BookingSessionStatus BookingStatus` vào class `ConversationSession`
-- [ ] Thêm field `string? LastBookingId` vào `ConversationSession`
-- [ ] Trong `ConversationService.ProcessMessageAsync`: sau khi booking thành công
+- [x] Thêm field `BookingSessionStatus BookingStatus` vào class `ConversationSession`
+- [x] Thêm field `string? LastBookingId` vào `ConversationSession`
+- [x] Trong `ConversationService.ProcessMessageAsync`: sau khi booking thành công
   - set `session.BookingStatus = BookingSessionStatus.Completed`
   - set `session.LastBookingId = bookingId`
   - reset `session.BookingDraft = new BookingDraftDto()`
-- [ ] Thêm guard ở đầu booking attempt block:
+- [x] Thêm guard ở đầu booking attempt block:
   ```csharp
   if (session.BookingStatus == BookingSessionStatus.Completed)
   {
@@ -46,9 +46,9 @@ Sau booking thành công, `session.BookingDraft` vẫn còn đủ dữ liệu. N
   ```
 
 **Định nghĩa done:**
-- [ ] Nhắn `cảm ơn` / `ok` / `dạ` sau booking → bot trả lời tự nhiên, không tạo booking mới
-- [ ] Log xuất hiện dòng `[BookingGuard] Session ... already completed`
-- [ ] Nhắn tin hoàn toàn mới trong session mới → booking flow vẫn hoạt động bình thường
+- [x] Nhắn `cảm ơn` / `ok` / `dạ` sau booking → bot trả lời tự nhiên, không tạo booking mới
+- [x] Log xuất hiện dòng `[BookingGuard] Session ... already completed`
+- [x] Nhắn tin hoàn toàn mới trong session mới → booking flow vẫn hoạt động bình thường
 
 ---
 

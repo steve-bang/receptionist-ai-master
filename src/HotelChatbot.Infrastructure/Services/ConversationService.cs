@@ -114,6 +114,12 @@ public class ConversationService : IConversationService
                 systemPrompt += $"\n\n=== THÔNG TIN PHÒNG TRỐNG HIỆN TẠI ===\n{availabilityContext}";
         }
 
+        // Inject current booking draft as ground truth so AI doesn't hallucinate dates/prices
+        // This prevents the AI from summarizing wrong dates from conversation memory
+        var bookingDraftContext = BuildBookingDraftContext(session.BookingDraft);
+        if (!string.IsNullOrEmpty(bookingDraftContext))
+            systemPrompt += $"\n\n=== THÔNG TIN ĐẶT PHÒNG HIỆN TẠI (GROUND TRUTH) ===\n{bookingDraftContext}\nKhi tóm tắt thông tin đặt phòng cho khách, PHẢI dùng đúng các giá trị trên. Không được suy đoán hoặc dùng con số khác.";
+
         // Get AI response
         var aiResponse = await _ai.GetChatCompletionAsync(
             systemPrompt,
@@ -131,6 +137,15 @@ public class ConversationService : IConversationService
         string? bookingId = null;
         var shouldAttemptBooking = isBookingReady || intent.Intent == "booking_confirm";
 
+        // Hậu-booking guard: nếu session đã hoàn tất booking, không cho phép tạo thêm
+        if (shouldAttemptBooking && session.BookingStatus == BookingSessionStatus.Completed)
+        {
+            _logger.LogInformation(
+                "[BookingGuard] Session {SessionId} already completed booking {BookingId}, skipping booking flow",
+                sessionId, session.LastBookingId);
+            shouldAttemptBooking = false;
+        }
+
         if (shouldAttemptBooking)
         {
             await TryResolveRoomIdAsync(session, request.HotelId);
@@ -144,6 +159,11 @@ public class ConversationService : IConversationService
                     bookingId = confirmation.BookingId;
                     cleanResponse = confirmation.ConfirmationMessage;
                     isBookingReady = true;
+
+                    // Đánh dấu session đã hoàn tất booking — ngăn tạo lại khi user nhắn "cảm ơn", "ok", v.v.
+                    session.BookingStatus = BookingSessionStatus.Completed;
+                    session.LastBookingId = bookingId;
+                    session.BookingDraft = new BookingDraftDto();
                 }
                 catch (Exception ex)
                 {
@@ -431,6 +451,34 @@ public class ConversationService : IConversationService
         {
             return null;
         }
+    }
+
+    private static string BuildBookingDraftContext(BookingDraftDto draft)
+    {
+        var lines = new List<string>();
+
+        if (draft.CheckInDate.HasValue)
+            lines.Add($"- Ngày check-in: {draft.CheckInDate.Value:dd/MM/yyyy}");
+        if (draft.CheckOutDate.HasValue)
+            lines.Add($"- Ngày check-out: {draft.CheckOutDate.Value:dd/MM/yyyy}");
+        if (draft.CheckInDate.HasValue && draft.CheckOutDate.HasValue)
+            lines.Add($"- Số đêm: {(draft.CheckOutDate.Value - draft.CheckInDate.Value).Days} đêm");
+        if (draft.NumAdults.HasValue)
+            lines.Add($"- Số người lớn: {draft.NumAdults.Value}");
+        if (draft.NumChildren is > 0)
+            lines.Add($"- Số trẻ em: {draft.NumChildren.Value}");
+        if (!string.IsNullOrEmpty(draft.RoomType))
+            lines.Add($"- Loại phòng: {draft.RoomType}");
+        if (!string.IsNullOrEmpty(draft.GuestName))
+            lines.Add($"- Tên khách: {draft.GuestName}");
+        if (!string.IsNullOrEmpty(draft.GuestPhone))
+            lines.Add($"- Điện thoại: {draft.GuestPhone}");
+        if (!string.IsNullOrEmpty(draft.GuestEmail))
+            lines.Add($"- Email: {draft.GuestEmail}");
+        if (draft.EstimatedTotal.HasValue)
+            lines.Add($"- Tổng tiền ước tính: {draft.EstimatedTotal.Value:N0} VND");
+
+        return lines.Count == 0 ? "" : string.Join("\n", lines);
     }
 
     private bool IsBookingDraftComplete(BookingDraftDto draft)

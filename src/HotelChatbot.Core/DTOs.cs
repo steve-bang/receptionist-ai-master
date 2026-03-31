@@ -158,6 +158,13 @@ public class AvailableRoomDto
 // ============================================================
 // CONVERSATION SESSION
 // ============================================================
+public enum BookingSessionStatus
+{
+    None,        // Chưa có booking trong session này
+    InProgress,  // Đang trong quá trình thu thập thông tin booking
+    Completed    // Booking đã được tạo thành công — không cho phép tạo lại
+}
+
 public class ConversationSession
 {
     public string SessionId { get; set; } = Guid.NewGuid().ToString();
@@ -169,6 +176,10 @@ public class ConversationSession
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
     public string Language { get; set; } = "vi";
+
+    // Hậu-booking state guard — ngăn tạo booking trùng lặp trong cùng session
+    public BookingSessionStatus BookingStatus { get; set; } = BookingSessionStatus.None;
+    public string? LastBookingId { get; set; }
 }
 
 public class ConversationMessage
