@@ -117,6 +117,12 @@ public interface IMessengerWebhookService
     Task HandleWebhookAsync(string payloadJson);
 }
 
+public interface IZaloWebhookService
+{
+    bool VerifySignature(string payload, string? signatureHeader);
+    Task HandleWebhookAsync(string payloadJson);
+}
+
 public class IntentAnalysis
 {
     public string Intent { get; set; } = "general"; // general, availability_check, booking_init, booking_confirm, price_inquiry, policy_inquiry, amenity_inquiry, promotion_inquiry, cancel_booking

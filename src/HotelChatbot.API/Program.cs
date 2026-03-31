@@ -72,8 +72,11 @@ builder.Services.AddScoped<IBookingService, BookingService>();
 builder.Services.AddScoped<IConversationService, ConversationService>();
 builder.Services.Configure<MessengerOptions>(
     builder.Configuration.GetSection("Messenger"));
+builder.Services.Configure<ZaloOptions>(
+    builder.Configuration.GetSection("Zalo"));
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<IMessengerWebhookService, MessengerWebhookService>();
+builder.Services.AddSingleton<IZaloWebhookService, ZaloWebhookService>();
 builder.Services.Configure<AIUsageOptions>(
     builder.Configuration.GetSection("AIUsage"));
 builder.Services.AddScoped<IAIUsageService, AIUsageService>();

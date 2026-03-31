@@ -2,6 +2,42 @@
 
 Tài liệu này ghi lại các thay đổi chính của dự án theo hướng thực dụng, tập trung vào những mốc có ảnh hưởng tới sản phẩm, kiến trúc và vận hành.
 
+## [Phase 1 — Multi-Hotel SaaS Foundation] · 2026-03-31
+
+### Added
+
+- **Zalo OA channel** — Tích hợp Zalo Official Account như một channel chatbot độc lập:
+  - `ZaloOptions` với `OaHotelMapping`, `OaAccessTokenMapping`, `OaSecretKeyMapping`
+  - `ZaloWebhookService` với debounce 5s, webhook signature verify (HMAC-SHA256)
+  - `IZaloWebhookService` interface trong `IServices.cs`
+  - `ZaloController` tại `POST /api/zalo/webhook`
+  - Session key isolate theo `zalo:{oaId}:{userId}`
+  - _Files: `ZaloOptions.cs`, `ZaloWebhookService.cs`, `ZaloController.cs`, `IServices.cs`, `Program.cs`_
+
+### Changed
+
+- **Google Sheets per-hotel routing** — Mỗi hotel có thể có Google Spreadsheet riêng:
+  - Thêm `HotelSpreadsheetMapping` vào `GoogleSheetsOptions`
+  - `ResolveSpreadsheetId(hotelId)` — lookup hotel spreadsheet, fallback về platform SpreadsheetId
+  - Tất cả read/write operations dùng đúng spreadsheet của hotel
+  - AI usage logs vẫn ghi vào platform SpreadsheetId (cross-hotel reporting)
+  - `GetBookingAsync` và `CancelBookingAsync` tìm kiếm qua tất cả spreadsheets được cấu hình
+  - _Files: `GoogleSheetsService.cs`_
+
+- **Messenger per-page access token** — Mỗi Facebook Page dùng access token riêng khi gửi reply:
+  - Thêm `PageAccessTokenMapping` vào `MessengerOptions`
+  - `ResolvePageAccessToken(pageId)` — lookup token per page, fallback về `PageAccessToken` mặc định
+  - _Files: `MessengerOptions.cs`, `MessengerWebhookService.cs`_
+
+- **appsettings.json** — Thêm config sections cho `Zalo`, `GoogleSheets.HotelSpreadsheetMapping`, `Messenger.PageAccessTokenMapping`
+
+### Notes
+
+- Zalo access token hết hạn sau 3 giờ — Phase 1 cần refresh thủ công qua Zalo OA portal. Auto-refresh là Phase 2.
+- CORS vẫn đang AllowAll — cần restrict trước production.
+
+---
+
 ## [Sprint 1 — Make It Safe] · 2026-03-31
 
 ### Fixed

@@ -16,6 +16,9 @@ public class GoogleSheetsOptions
     public string CredentialsPath { get; set; } = "";
     public string CredentialsJson { get; set; } = ""; // Alternative: inline JSON
     public int CacheMinutes { get; set; } = 5;
+    // Multi-hotel mapping: hotelId → SpreadsheetId
+    // Nếu để trống, mọi hotel đều dùng SpreadsheetId ở trên (single-hotel mode)
+    public Dictionary<string, string> HotelSpreadsheetMapping { get; set; } = new();
 }
 
 // ============================================================
@@ -78,25 +81,63 @@ public class GoogleSheetsService : IGoogleSheetsService
         });
     }
 
-    private async Task<IList<IList<object>>> ReadSheetAsync(string sheetName, string range = "A:Z")
+    // ============================================================
+    // MULTI-HOTEL ROUTING
+    // ============================================================
+
+    /// <summary>
+    /// Resolve spreadsheetId cho từng hotel. Fallback về SpreadsheetId mặc định (platform).
+    /// </summary>
+    private string ResolveSpreadsheetId(string hotelId)
+    {
+        if (!string.IsNullOrEmpty(hotelId)
+            && _options.HotelSpreadsheetMapping.TryGetValue(hotelId, out var id)
+            && !string.IsNullOrEmpty(id))
+        {
+            return id;
+        }
+        return _options.SpreadsheetId;
+    }
+
+    /// <summary>
+    /// Trả về tất cả spreadsheetId đang được cấu hình (dùng để tìm kiếm cross-hotel).
+    /// </summary>
+    private IEnumerable<string> GetAllSpreadsheetIds()
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrEmpty(_options.SpreadsheetId) && seen.Add(_options.SpreadsheetId))
+            yield return _options.SpreadsheetId;
+
+        foreach (var id in _options.HotelSpreadsheetMapping.Values)
+        {
+            if (!string.IsNullOrEmpty(id) && seen.Add(id))
+                yield return id;
+        }
+    }
+
+    // ============================================================
+    // PRIVATE HELPERS
+    // ============================================================
+
+    private async Task<IList<IList<object>>> ReadSheetAsync(string spreadsheetId, string sheetName, string range = "A:Z")
     {
         try
         {
             var fullRange = $"{sheetName}!{range}";
-            var request = _sheetsService.Spreadsheets.Values.Get(_options.SpreadsheetId, fullRange);
+            var request = _sheetsService.Spreadsheets.Values.Get(spreadsheetId, fullRange);
             var response = await request.ExecuteAsync();
             return response.Values ?? new List<IList<object>>();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error reading sheet {SheetName}", sheetName);
+            _logger.LogError(ex, "Error reading sheet {SheetName} from spreadsheet {SpreadsheetId}", sheetName, spreadsheetId);
             return new List<IList<object>>();
         }
     }
 
-    private async Task EnsureSheetExistsAsync(string sheetName)
+    private async Task EnsureSheetExistsAsync(string spreadsheetId, string sheetName)
     {
-        var spreadsheet = await _sheetsService.Spreadsheets.Get(_options.SpreadsheetId).ExecuteAsync();
+        var spreadsheet = await _sheetsService.Spreadsheets.Get(spreadsheetId).ExecuteAsync();
         var exists = spreadsheet.Sheets?.Any(s =>
             string.Equals(s.Properties?.Title, sheetName, StringComparison.OrdinalIgnoreCase)) == true;
 
@@ -119,13 +160,15 @@ public class GoogleSheetsService : IGoogleSheetsService
             }
         };
 
-        await _sheetsService.Spreadsheets.BatchUpdate(addSheetRequest, _options.SpreadsheetId).ExecuteAsync();
+        await _sheetsService.Spreadsheets.BatchUpdate(addSheetRequest, spreadsheetId).ExecuteAsync();
     }
 
     private async Task EnsureAiUsageSheetReadyAsync()
     {
-        await EnsureSheetExistsAsync(SheetNames.AiUsageLogs);
-        var rows = await ReadSheetAsync(SheetNames.AiUsageLogs, "A:Q");
+        // AI usage logs ghi vào platform spreadsheet (SpreadsheetId mặc định)
+        var spreadsheetId = _options.SpreadsheetId;
+        await EnsureSheetExistsAsync(spreadsheetId, SheetNames.AiUsageLogs);
+        var rows = await ReadSheetAsync(spreadsheetId, SheetNames.AiUsageLogs, "A:Q");
         if (rows.Count > 0) return;
 
         var header = new ValueRange
@@ -134,28 +177,15 @@ public class GoogleSheetsService : IGoogleSheetsService
             {
                 new List<object>
                 {
-                    "LogId",
-                    "TimestampUtc",
-                    "HotelId",
-                    "SessionId",
-                    "Provider",
-                    "Model",
-                    "Operation",
-                    "PromptTokens",
-                    "CompletionTokens",
-                    "TotalTokens",
-                    "SystemPromptChars",
-                    "HistoryChars",
-                    "UserMessageChars",
-                    "InputTextChars",
-                    "OutputChars",
-                    "EstimatedCostUsd",
-                    "EstimatedCostVnd"
+                    "LogId", "TimestampUtc", "HotelId", "SessionId", "Provider", "Model", "Operation",
+                    "PromptTokens", "CompletionTokens", "TotalTokens", "SystemPromptChars",
+                    "HistoryChars", "UserMessageChars", "InputTextChars", "OutputChars",
+                    "EstimatedCostUsd", "EstimatedCostVnd"
                 }
             }
         };
 
-        var updateRequest = _sheetsService.Spreadsheets.Values.Update(header, _options.SpreadsheetId, $"{SheetNames.AiUsageLogs}!A1:Q1");
+        var updateRequest = _sheetsService.Spreadsheets.Values.Update(header, spreadsheetId, $"{SheetNames.AiUsageLogs}!A1:Q1");
         updateRequest.ValueInputOption = SpreadsheetsResource.ValuesResource.UpdateRequest.ValueInputOptionEnum.USERENTERED;
         await updateRequest.ExecuteAsync();
     }
@@ -205,11 +235,10 @@ public class GoogleSheetsService : IGoogleSheetsService
         var cacheKey = $"hotel_info_{hotelId}";
         if (_cache.TryGetValue(cacheKey, out HotelInfo? cached)) return cached;
 
-        var rows = await ReadSheetAsync(SheetNames.HotelInfo);
+        var spreadsheetId = ResolveSpreadsheetId(hotelId);
+        var rows = await ReadSheetAsync(spreadsheetId, SheetNames.HotelInfo);
         if (rows.Count < 2) return null;
 
-        // Header row at index 0, find hotel by HotelId column
-        var headerRow = rows[0];
         var hotelRow = rows.Skip(1).FirstOrDefault(r => GetCellValue(r, 0) == hotelId || hotelId == "default");
         if (hotelRow == null) hotelRow = rows.Count > 1 ? rows[1] : null;
         if (hotelRow == null) return null;
@@ -251,10 +280,11 @@ public class GoogleSheetsService : IGoogleSheetsService
         var cacheKey = $"rooms_{hotelId}";
         if (_cache.TryGetValue(cacheKey, out List<Room>? cached)) return cached!;
 
-        var rows = await ReadSheetAsync(SheetNames.Rooms);
+        var spreadsheetId = ResolveSpreadsheetId(hotelId);
+        var rows = await ReadSheetAsync(spreadsheetId, SheetNames.Rooms);
         var rooms = new List<Room>();
 
-        foreach (var row in rows.Skip(1)) // Skip header
+        foreach (var row in rows.Skip(1))
         {
             if (row.Count < 2) continue;
             var hotelIdCell = GetCellValue(row, 0);
@@ -295,7 +325,8 @@ public class GoogleSheetsService : IGoogleSheetsService
         var cacheKey = $"pricing_{hotelId}";
         if (_cache.TryGetValue(cacheKey, out List<RoomPricing>? cached)) return cached!;
 
-        var rows = await ReadSheetAsync(SheetNames.Pricing);
+        var spreadsheetId = ResolveSpreadsheetId(hotelId);
+        var rows = await ReadSheetAsync(spreadsheetId, SheetNames.Pricing);
         var pricingList = new List<RoomPricing>();
 
         foreach (var row in rows.Skip(1))
@@ -333,7 +364,8 @@ public class GoogleSheetsService : IGoogleSheetsService
     // ============================================================
     public async Task<List<RoomAvailability>> GetAvailabilityAsync(string hotelId, DateTime checkIn, DateTime checkOut)
     {
-        var rows = await ReadSheetAsync(SheetNames.Availability);
+        var spreadsheetId = ResolveSpreadsheetId(hotelId);
+        var rows = await ReadSheetAsync(spreadsheetId, SheetNames.Availability);
         var availability = new List<RoomAvailability>();
 
         foreach (var row in rows.Skip(1))
@@ -370,7 +402,8 @@ public class GoogleSheetsService : IGoogleSheetsService
         var cacheKey = $"amenities_{hotelId}";
         if (_cache.TryGetValue(cacheKey, out List<Amenity>? cached)) return cached!;
 
-        var rows = await ReadSheetAsync(SheetNames.Amenities);
+        var spreadsheetId = ResolveSpreadsheetId(hotelId);
+        var rows = await ReadSheetAsync(spreadsheetId, SheetNames.Amenities);
         var amenities = new List<Amenity>();
 
         foreach (var row in rows.Skip(1))
@@ -403,7 +436,8 @@ public class GoogleSheetsService : IGoogleSheetsService
         var cacheKey = $"promos_{hotelId}";
         if (_cache.TryGetValue(cacheKey, out List<Promotion>? cached)) return cached!;
 
-        var rows = await ReadSheetAsync(SheetNames.Promotions);
+        var spreadsheetId = ResolveSpreadsheetId(hotelId);
+        var rows = await ReadSheetAsync(spreadsheetId, SheetNames.Promotions);
         var promos = new List<Promotion>();
         var today = DateTime.Today;
 
@@ -453,7 +487,8 @@ public class GoogleSheetsService : IGoogleSheetsService
         var cacheKey = $"faqs_{hotelId}";
         if (_cache.TryGetValue(cacheKey, out List<FAQ>? cached)) return cached!;
 
-        var rows = await ReadSheetAsync(SheetNames.FAQs);
+        var spreadsheetId = ResolveSpreadsheetId(hotelId);
+        var rows = await ReadSheetAsync(spreadsheetId, SheetNames.FAQs);
         var faqs = new List<FAQ>();
 
         foreach (var row in rows.Skip(1))
@@ -483,7 +518,8 @@ public class GoogleSheetsService : IGoogleSheetsService
         var cacheKey = $"holidays_{hotelId}";
         if (_cache.TryGetValue(cacheKey, out List<Holiday>? cached)) return cached!;
 
-        var rows = await ReadSheetAsync(SheetNames.Holidays);
+        var spreadsheetId = ResolveSpreadsheetId(hotelId);
+        var rows = await ReadSheetAsync(spreadsheetId, SheetNames.Holidays);
         var holidays = new List<Holiday>();
 
         foreach (var row in rows.Skip(1))
@@ -504,7 +540,7 @@ public class GoogleSheetsService : IGoogleSheetsService
     }
 
     // ============================================================
-    // WRITE: AI USAGE LOG
+    // WRITE: AI USAGE LOG (platform spreadsheet)
     // ============================================================
     public async Task AppendAiUsageLogAsync(AiUsageLog log)
     {
@@ -547,12 +583,12 @@ public class GoogleSheetsService : IGoogleSheetsService
     }
 
     // ============================================================
-    // READ: AI USAGE LOGS
+    // READ: AI USAGE LOGS (platform spreadsheet)
     // ============================================================
     public async Task<List<AiUsageLog>> GetAiUsageLogsAsync(DateTime fromUtc, DateTime toUtc, string? hotelId = null)
     {
         await EnsureAiUsageSheetReadyAsync();
-        var rows = await ReadSheetAsync(SheetNames.AiUsageLogs, "A:Q");
+        var rows = await ReadSheetAsync(_options.SpreadsheetId, SheetNames.AiUsageLogs, "A:Q");
         var logs = new List<AiUsageLog>();
 
         foreach (var row in rows.Skip(1))
@@ -590,12 +626,13 @@ public class GoogleSheetsService : IGoogleSheetsService
     }
 
     // ============================================================
-    // WRITE: CREATE BOOKING
+    // WRITE: CREATE BOOKING (hotel spreadsheet)
     // ============================================================
     public async Task<string> CreateBookingAsync(Booking booking)
     {
         try
         {
+            var spreadsheetId = ResolveSpreadsheetId(booking.HotelId);
             var values = new List<IList<object>>
             {
                 new List<object>
@@ -634,11 +671,11 @@ public class GoogleSheetsService : IGoogleSheetsService
             };
 
             var body = new ValueRange { Values = values };
-            var request = _sheetsService.Spreadsheets.Values.Append(body, _options.SpreadsheetId, $"{SheetNames.Bookings}!A:AD");
+            var request = _sheetsService.Spreadsheets.Values.Append(body, spreadsheetId, $"{SheetNames.Bookings}!A:AD");
             request.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
             await request.ExecuteAsync();
 
-            _logger.LogInformation("Booking {BookingId} created successfully", booking.BookingId);
+            _logger.LogInformation("Booking {BookingId} created in spreadsheet {SpreadsheetId}", booking.BookingId, spreadsheetId);
             return booking.BookingId;
         }
         catch (Exception ex)
@@ -649,17 +686,16 @@ public class GoogleSheetsService : IGoogleSheetsService
     }
 
     // ============================================================
-    // WRITE: UPDATE AVAILABILITY
+    // WRITE: UPDATE AVAILABILITY (hotel spreadsheet)
     // ============================================================
     public async Task<bool> UpdateAvailabilityAsync(string hotelId, string roomId, DateTime checkIn, DateTime checkOut, string bookingId)
     {
         try
         {
-            // Read existing availability
-            var rows = await ReadSheetAsync(SheetNames.Availability);
+            var spreadsheetId = ResolveSpreadsheetId(hotelId);
+            var rows = await ReadSheetAsync(spreadsheetId, SheetNames.Availability);
             var updates = new List<ValueRange>();
             var rowsToAdd = new List<IList<object>>();
-
             var existingDates = new HashSet<string>();
 
             for (int i = 1; i < rows.Count; i++)
@@ -671,7 +707,6 @@ public class GoogleSheetsService : IGoogleSheetsService
                 if (rowRoomId == roomId && rowDate >= checkIn && rowDate < checkOut)
                 {
                     existingDates.Add(rowDate.ToString("yyyy-MM-dd"));
-                    // Update existing row
                     var range = $"{SheetNames.Availability}!F{i + 1}:G{i + 1}";
                     updates.Add(new ValueRange
                     {
@@ -694,7 +729,6 @@ public class GoogleSheetsService : IGoogleSheetsService
                 }
             }
 
-            // Batch update existing
             if (updates.Count > 0)
             {
                 var batchRequest = new BatchUpdateValuesRequest
@@ -702,14 +736,13 @@ public class GoogleSheetsService : IGoogleSheetsService
                     Data = updates,
                     ValueInputOption = "USER_ENTERED"
                 };
-                await _sheetsService.Spreadsheets.Values.BatchUpdate(batchRequest, _options.SpreadsheetId).ExecuteAsync();
+                await _sheetsService.Spreadsheets.Values.BatchUpdate(batchRequest, spreadsheetId).ExecuteAsync();
             }
 
-            // Append new rows
             if (rowsToAdd.Count > 0)
             {
                 var body = new ValueRange { Values = rowsToAdd };
-                var appendReq = _sheetsService.Spreadsheets.Values.Append(body, _options.SpreadsheetId, $"{SheetNames.Availability}!A:H");
+                var appendReq = _sheetsService.Spreadsheets.Values.Append(body, spreadsheetId, $"{SheetNames.Availability}!A:H");
                 appendReq.ValueInputOption = SpreadsheetsResource.ValuesResource.AppendRequest.ValueInputOptionEnum.USERENTERED;
                 await appendReq.ExecuteAsync();
             }
@@ -724,61 +757,68 @@ public class GoogleSheetsService : IGoogleSheetsService
     }
 
     // ============================================================
-    // READ: GET BOOKING BY ID
+    // READ: GET BOOKING BY ID (tìm qua tất cả hotel spreadsheets)
     // ============================================================
     public async Task<Booking?> GetBookingAsync(string bookingId)
     {
-        var rows = await ReadSheetAsync(SheetNames.Bookings);
-        var row = rows.Skip(1).FirstOrDefault(r => GetCellValue(r, 1) == bookingId);
-        if (row == null) return null;
-
-        return new Booking
+        foreach (var spreadsheetId in GetAllSpreadsheetIds())
         {
-            HotelId = GetCellValue(row, 0),
-            BookingId = GetCellValue(row, 1),
-            GuestName = GetCellValue(row, 2),
-            GuestPhone = GetCellValue(row, 3),
-            GuestEmail = GetCellValue(row, 4),
-            GuestIdCard = GetCellValue(row, 5),
-            Nationality = GetCellValue(row, 6),
-            RoomId = GetCellValue(row, 7),
-            RoomNumber = GetCellValue(row, 8),
-            RoomType = GetCellValue(row, 9),
-            CheckInDate = GetDateValue(row, 10),
-            CheckOutDate = GetDateValue(row, 11),
-            TotalNights = GetIntValue(row, 12),
-            NumAdults = GetIntValue(row, 13),
-            NumChildren = GetIntValue(row, 14),
-            SpecialRequests = GetCellValue(row, 15),
-            RoomRate = GetDecimalValue(row, 16),
-            TotalAmount = GetDecimalValue(row, 17),
-            PromoCode = GetCellValue(row, 18),
-            DiscountAmount = GetDecimalValue(row, 19),
-            FinalAmount = GetDecimalValue(row, 20),
-            BreakfastIncluded = GetCellValue(row, 21).ToLower() == "yes",
-            PaymentMethod = GetCellValue(row, 22),
-            PaymentStatus = GetCellValue(row, 23),
-            BookingStatus = GetCellValue(row, 24),
-            BookingChannel = GetCellValue(row, 25),
-            SessionId = GetCellValue(row, 26),
-            CreatedAt = GetDateValue(row, 27),
-            UpdatedAt = GetDateValue(row, 28),
-            Notes = GetCellValue(row, 29)
-        };
+            var rows = await ReadSheetAsync(spreadsheetId, SheetNames.Bookings);
+            var row = rows.Skip(1).FirstOrDefault(r => GetCellValue(r, 1) == bookingId);
+            if (row == null) continue;
+
+            return new Booking
+            {
+                HotelId = GetCellValue(row, 0),
+                BookingId = GetCellValue(row, 1),
+                GuestName = GetCellValue(row, 2),
+                GuestPhone = GetCellValue(row, 3),
+                GuestEmail = GetCellValue(row, 4),
+                GuestIdCard = GetCellValue(row, 5),
+                Nationality = GetCellValue(row, 6),
+                RoomId = GetCellValue(row, 7),
+                RoomNumber = GetCellValue(row, 8),
+                RoomType = GetCellValue(row, 9),
+                CheckInDate = GetDateValue(row, 10),
+                CheckOutDate = GetDateValue(row, 11),
+                TotalNights = GetIntValue(row, 12),
+                NumAdults = GetIntValue(row, 13),
+                NumChildren = GetIntValue(row, 14),
+                SpecialRequests = GetCellValue(row, 15),
+                RoomRate = GetDecimalValue(row, 16),
+                TotalAmount = GetDecimalValue(row, 17),
+                PromoCode = GetCellValue(row, 18),
+                DiscountAmount = GetDecimalValue(row, 19),
+                FinalAmount = GetDecimalValue(row, 20),
+                BreakfastIncluded = GetCellValue(row, 21).ToLower() == "yes",
+                PaymentMethod = GetCellValue(row, 22),
+                PaymentStatus = GetCellValue(row, 23),
+                BookingStatus = GetCellValue(row, 24),
+                BookingChannel = GetCellValue(row, 25),
+                SessionId = GetCellValue(row, 26),
+                CreatedAt = GetDateValue(row, 27),
+                UpdatedAt = GetDateValue(row, 28),
+                Notes = GetCellValue(row, 29)
+            };
+        }
+
+        return null;
     }
 
     // ============================================================
-    // WRITE: CANCEL BOOKING
+    // WRITE: CANCEL BOOKING (tìm qua tất cả hotel spreadsheets)
     // ============================================================
     public async Task<bool> CancelBookingAsync(string bookingId, string reason)
     {
-        try
+        foreach (var spreadsheetId in GetAllSpreadsheetIds())
         {
-            var rows = await ReadSheetAsync(SheetNames.Bookings);
-            for (int i = 1; i < rows.Count; i++)
+            try
             {
-                if (GetCellValue(rows[i], 1) == bookingId)
+                var rows = await ReadSheetAsync(spreadsheetId, SheetNames.Bookings);
+                for (int i = 1; i < rows.Count; i++)
                 {
+                    if (GetCellValue(rows[i], 1) != bookingId) continue;
+
                     var range = $"{SheetNames.Bookings}!Y{i + 1}:AD{i + 1}";
                     var values = new ValueRange
                     {
@@ -787,17 +827,17 @@ public class GoogleSheetsService : IGoogleSheetsService
                             new List<object> { "Cancelled", "", "", "", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"), reason }
                         }
                     };
-                    await _sheetsService.Spreadsheets.Values.Update(values, _options.SpreadsheetId, range)
-                        .ExecuteAsync();
+                    await _sheetsService.Spreadsheets.Values.Update(values, spreadsheetId, range).ExecuteAsync();
                     return true;
                 }
             }
-            return false;
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching spreadsheet {SpreadsheetId} for booking {BookingId}", spreadsheetId, bookingId);
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error cancelling booking {BookingId}", bookingId);
-            return false;
-        }
+
+        _logger.LogWarning("Booking {BookingId} not found in any configured spreadsheet", bookingId);
+        return false;
     }
 }

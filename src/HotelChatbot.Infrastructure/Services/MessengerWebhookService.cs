@@ -199,9 +199,10 @@ public class MessengerWebhookService : IMessengerWebhookService
         string mergedText,
         int bufferedMessagesCount)
     {
-        if (string.IsNullOrWhiteSpace(_options.PageAccessToken))
+        var pageAccessToken = ResolvePageAccessToken(evt.PageId);
+        if (string.IsNullOrWhiteSpace(pageAccessToken))
         {
-            _logger.LogWarning("Messenger PageAccessToken is empty. Skip sending reply for senderId={SenderId}", evt.SenderId);
+            _logger.LogWarning("Messenger PageAccessToken is empty for pageId={PageId}. Skip sending reply for senderId={SenderId}", evt.PageId, evt.SenderId);
             return;
         }
 
@@ -215,7 +216,7 @@ public class MessengerWebhookService : IMessengerWebhookService
                 {
                     SessionId = evt.SenderId,
                     Message = mergedText,
-                    HotelId = _options.DefaultHotelId,
+                    HotelId = ResolveHotelId(evt.PageId),
                     Language = "vi"
                 });
 
@@ -244,7 +245,7 @@ public class MessengerWebhookService : IMessengerWebhookService
 
         var json = JsonSerializer.Serialize(requestBody);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
-        var requestUrl = $"{MessengerSendApiUrl}?access_token={Uri.EscapeDataString(_options.PageAccessToken)}";
+        var requestUrl = $"{MessengerSendApiUrl}?access_token={Uri.EscapeDataString(pageAccessToken)}";
         var httpClient = _httpClientFactory.CreateClient();
 
         try
@@ -273,6 +274,26 @@ public class MessengerWebhookService : IMessengerWebhookService
         {
             _logger.LogError(ex, "Error sending Messenger auto-reply to senderId={SenderId}", evt.SenderId);
         }
+    }
+
+    private string ResolvePageAccessToken(string pageId)
+    {
+        if (!string.IsNullOrEmpty(pageId) && _options.PageAccessTokenMapping.TryGetValue(pageId, out var token))
+            return token;
+        return _options.PageAccessToken;
+    }
+
+    private string ResolveHotelId(string pageId)
+    {
+        if (!string.IsNullOrEmpty(pageId) && _options.PageHotelMapping.TryGetValue(pageId, out var hotelId))
+        {
+            _logger.LogDebug("[PageMapping] pageId={PageId} → hotelId={HotelId}", pageId, hotelId);
+            return hotelId;
+        }
+
+        _logger.LogDebug("[PageMapping] pageId={PageId} → defaultHotelId={HotelId} (no mapping configured)",
+            pageId, _options.DefaultHotelId);
+        return _options.DefaultHotelId;
     }
 
     private bool ShouldProcessIncomingText(MessengerWebhookEventDto evt)
