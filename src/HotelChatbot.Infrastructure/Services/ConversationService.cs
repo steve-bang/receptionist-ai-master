@@ -272,47 +272,221 @@ public class ConversationService : IConversationService
 
     private void ApplyDeterministicRelativeDateOverrides(string message, Dictionary<string, string> entities)
     {
-        var detectedDates = ExtractRelativeDates(message);
-        if (detectedDates.Count == 0) return;
+        var today = GetVietnamToday();
+        var norm = message.Trim().ToLowerInvariant();
 
-        if (detectedDates.Count >= 1)
-            entities["check_in_date"] = detectedDates[0].ToString("yyyy-MM-dd");
+        // Priority 1: range "từ A đến B" → set both dates
+        if (TryParseRangeExpression(norm, today, out var rangeIn, out var rangeOut))
+        {
+            entities["check_in_date"] = rangeIn!.Value.ToString("yyyy-MM-dd");
+            entities["check_out_date"] = rangeOut!.Value.ToString("yyyy-MM-dd");
+            return;
+        }
 
-        if (detectedDates.Count >= 2)
-            entities["check_out_date"] = detectedDates[1].ToString("yyyy-MM-dd");
+        // Priority 2: duration "X đêm từ [date]" → check_in + check_out
+        if (TryParseDurationExpression(norm, today, out var durIn, out var durOut))
+        {
+            entities["check_in_date"] = durIn!.Value.ToString("yyyy-MM-dd");
+            entities["check_out_date"] = durOut!.Value.ToString("yyyy-MM-dd");
+            return;
+        }
+
+        // Priority 3: standalone date expressions in order of appearance
+        var dates = ExtractStandaloneDates(norm, today);
+        if (dates.Count >= 1) entities["check_in_date"] = dates[0].ToString("yyyy-MM-dd");
+        if (dates.Count >= 2) entities["check_out_date"] = dates[1].ToString("yyyy-MM-dd");
     }
 
-    private static List<DateTime> ExtractRelativeDates(string message)
+    private static bool TryParseRangeExpression(string norm, DateTime today, out DateTime? checkIn, out DateTime? checkOut)
     {
-        var normalized = message.Trim().ToLowerInvariant();
-        var today = GetVietnamToday();
-        var results = new List<DateTime>();
+        checkIn = null; checkOut = null;
 
-        var weekdayMatches = Regex.Matches(normalized, @"(thứ\s*[2-7]|chủ nhật|cn)\s+tuần\s+(tới|sau|này)");
-        foreach (Match match in weekdayMatches)
+        var m = Regex.Match(norm, @"từ\s+(.+?)\s+đến\s+(.+?)(?:\s*[,\.!?]|\s+(?:nhé|ạ|nha|thì|để|nhờ)|$)");
+        if (!m.Success) return false;
+
+        var d1 = TryParseSingleDatePhrase(m.Groups[1].Value.Trim(), today);
+        var d2 = TryParseSingleDatePhrase(m.Groups[2].Value.Trim(), today);
+
+        if (!d1.HasValue || !d2.HasValue || d2.Value <= d1.Value) return false;
+
+        checkIn = d1; checkOut = d2;
+        return true;
+    }
+
+    private static bool TryParseDurationExpression(string norm, DateTime today, out DateTime? checkIn, out DateTime? checkOut)
+    {
+        checkIn = null; checkOut = null;
+
+        // "X đêm từ [date]" or "X đêm kể từ [date]"
+        var m1 = Regex.Match(norm, @"(\d+)\s*đêm\s+(?:từ|kể từ|bắt đầu từ)\s+(.+?)(?:\s*[,\.!?]|\s+(?:nhé|ạ|nha)|$)");
+        if (m1.Success && int.TryParse(m1.Groups[1].Value, out var n1) && n1 > 0)
         {
-            var target = ResolveWeekdayRelativeDate(match.Groups[1].Value, match.Groups[2].Value, today);
-            if (target.HasValue)
-                results.Add(target.Value);
+            var d = TryParseSingleDatePhrase(m1.Groups[2].Value.Trim(), today);
+            if (d.HasValue) { checkIn = d; checkOut = d.Value.AddDays(n1); return true; }
         }
 
-        var dayMonthMatches = Regex.Matches(normalized, @"ngày\s+(\d{1,2})\s+tháng\s+(tới|sau|này)");
-        foreach (Match match in dayMonthMatches)
+        // "ở/nghỉ [date] X đêm" or "ở [date] trong X đêm"
+        var m2 = Regex.Match(norm, @"(?:ở|nghỉ)\s+(.+?)\s+(?:trong\s+)?(\d+)\s*đêm");
+        if (m2.Success && int.TryParse(m2.Groups[2].Value, out var n2) && n2 > 0)
         {
-            var day = int.Parse(match.Groups[1].Value);
-            var target = ResolveDayOfMonthRelativeDate(day, match.Groups[2].Value, today);
-            if (target.HasValue)
-                results.Add(target.Value);
+            var d = TryParseSingleDatePhrase(m2.Groups[1].Value.Trim(), today);
+            if (d.HasValue) { checkIn = d; checkOut = d.Value.AddDays(n2); return true; }
         }
 
-        var ordered = new List<DateTime>();
-        foreach (var date in results.Where(x => x.Date >= today))
+        return false;
+    }
+
+    private static DateTime? TryParseSingleDatePhrase(string phrase, DateTime today)
+    {
+        phrase = phrase.Trim().ToLowerInvariant();
+
+        switch (phrase)
         {
-            if (!ordered.Contains(date))
-                ordered.Add(date);
+            case "hôm nay": case "today": return today;
+            case "mai": case "ngày mai": return today.AddDays(1);
+            case "mốt": case "ngày mốt": return today.AddDays(2);
+            case "ngày kia": case "ngày kìa": return today.AddDays(3);
+            case "cuối tuần": case "cuối tuần này": return GetWeekendDate(today, nextWeek: false);
+            case "cuối tuần tới": case "cuối tuần sau": return GetWeekendDate(today, nextWeek: true);
         }
 
-        return ordered;
+        // Weekday + tuần: "thứ X tuần tới/này/sau"
+        var wdWeek = Regex.Match(phrase, @"^(thứ\s*[2-7]|chủ\s*nhật|cn)\s+tuần\s+(tới|sau|này)$");
+        if (wdWeek.Success)
+            return ResolveWeekdayRelativeDate(NormalizeWeekdayText(wdWeek.Groups[1].Value), wdWeek.Groups[2].Value, today);
+
+        // Just weekday without qualifier → nearest future
+        var wdOnly = Regex.Match(phrase, @"^(thứ\s*[2-7]|chủ\s*nhật|cn)$");
+        if (wdOnly.Success)
+            return ResolveWeekdayRelativeDate(NormalizeWeekdayText(wdOnly.Groups[1].Value), "tới", today);
+
+        // dd/mm/yyyy or dd-mm-yyyy
+        var fullDt = Regex.Match(phrase, @"^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$");
+        if (fullDt.Success)
+            return ParseAbsoluteDate(fullDt.Groups[1].Value, fullDt.Groups[2].Value, fullDt.Groups[3].Value, today);
+
+        // dd/mm or dd-mm
+        var shortDt = Regex.Match(phrase, @"^(\d{1,2})[/\-](\d{1,2})$");
+        if (shortDt.Success)
+            return ParseAbsoluteDate(shortDt.Groups[1].Value, shortDt.Groups[2].Value, null, today);
+
+        // ngày DD tháng MM [năm YYYY] or DD tháng MM [năm YYYY]
+        var namedDt = Regex.Match(phrase, @"^(?:ngày\s+)?(\d{1,2})\s+tháng\s+(\d{1,2})(?:\s+năm\s+(\d{4}))?$");
+        if (namedDt.Success)
+            return ParseAbsoluteDate(namedDt.Groups[1].Value, namedDt.Groups[2].Value,
+                namedDt.Groups[3].Success ? namedDt.Groups[3].Value : null, today);
+
+        // ngày X tháng tới/sau/này
+        var relMonth = Regex.Match(phrase, @"^(?:ngày\s+)?(\d{1,2})\s+tháng\s+(tới|sau|này)$");
+        if (relMonth.Success)
+            return ResolveDayOfMonthRelativeDate(int.Parse(relMonth.Groups[1].Value), relMonth.Groups[2].Value, today);
+
+        return null;
+    }
+
+    private static List<DateTime> ExtractStandaloneDates(string norm, DateTime today)
+    {
+        // (startIndex → date) — more specific patterns registered first win on same position
+        var found = new SortedDictionary<int, DateTime>();
+
+        void TryAdd(int pos, DateTime? date)
+        {
+            if (date.HasValue && date.Value.Date >= today && !found.ContainsKey(pos))
+                found[pos] = date.Value.Date;
+        }
+
+        // 1. Absolute with year: dd/mm/yyyy or dd-mm-yyyy
+        foreach (Match m in Regex.Matches(norm, @"\b(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})\b"))
+            TryAdd(m.Index, ParseAbsoluteDate(m.Groups[1].Value, m.Groups[2].Value, m.Groups[3].Value, today));
+
+        // 2. ngày DD tháng MM [năm YYYY]
+        foreach (Match m in Regex.Matches(norm, @"ngày\s+(\d{1,2})\s+tháng\s+(\d{1,2})(?:\s+năm\s+(\d{4}))?"))
+            TryAdd(m.Index, ParseAbsoluteDate(m.Groups[1].Value, m.Groups[2].Value,
+                m.Groups[3].Success ? m.Groups[3].Value : null, today));
+
+        // 3. Simple keywords (longer phrases first to avoid "mai" inside "ngày mai")
+        var simpleMap = new (string pattern, int days)[]
+        {
+            (@"\bhôm nay\b", 0), (@"\btoday\b", 0),
+            (@"\bngày mai\b", 1), (@"\bmai\b", 1),
+            (@"\bngày mốt\b", 2), (@"\bmốt\b", 2),
+            (@"\bngày kia\b", 3), (@"\bngày kìa\b", 3),
+        };
+        foreach (var (pat, days) in simpleMap)
+        {
+            var km = Regex.Match(norm, pat);
+            if (km.Success) TryAdd(km.Index, today.AddDays(days));
+        }
+
+        // 4. Cuối tuần tới trước cuối tuần này để tránh overlap
+        var wkNext = Regex.Match(norm, @"cuối tuần\s+(tới|sau)");
+        if (wkNext.Success) TryAdd(wkNext.Index, GetWeekendDate(today, nextWeek: true));
+
+        var wkThis = Regex.Match(norm, @"cuối tuần(?!\s+(?:tới|sau))");
+        if (wkThis.Success) TryAdd(wkThis.Index, GetWeekendDate(today, nextWeek: false));
+
+        // 5. Weekday + tuần
+        foreach (Match m in Regex.Matches(norm, @"(thứ\s*[2-7]|chủ\s*nhật|cn)\s+tuần\s+(tới|sau|này)"))
+            TryAdd(m.Index, ResolveWeekdayRelativeDate(NormalizeWeekdayText(m.Groups[1].Value), m.Groups[2].Value, today));
+
+        // 6. Ngày X tháng tới/sau/này
+        foreach (Match m in Regex.Matches(norm, @"ngày\s+(\d{1,2})\s+tháng\s+(tới|sau|này)"))
+            TryAdd(m.Index, ResolveDayOfMonthRelativeDate(int.Parse(m.Groups[1].Value), m.Groups[2].Value, today));
+
+        // 7. DD tháng MM [năm YYYY] (without ngày prefix)
+        foreach (Match m in Regex.Matches(norm, @"(?<![a-z])(\d{1,2})\s+tháng\s+(\d{1,2})(?:\s+năm\s+(\d{4}))?"))
+        {
+            if (!found.ContainsKey(m.Index))
+                TryAdd(m.Index, ParseAbsoluteDate(m.Groups[1].Value, m.Groups[2].Value,
+                    m.Groups[3].Success ? m.Groups[3].Value : null, today));
+        }
+
+        // 8. Absolute dd/mm (no year) — only where not already consumed by yyyy pattern
+        foreach (Match m in Regex.Matches(norm, @"\b(\d{1,2})[/\-](\d{1,2})\b"))
+        {
+            if (!found.ContainsKey(m.Index))
+                TryAdd(m.Index, ParseAbsoluteDate(m.Groups[1].Value, m.Groups[2].Value, null, today));
+        }
+
+        return found.Values.Distinct().Take(2).ToList();
+    }
+
+    private static DateTime? ParseAbsoluteDate(string dayStr, string monthStr, string? yearStr, DateTime today)
+    {
+        if (!int.TryParse(dayStr, out var day) || !int.TryParse(monthStr, out var month)) return null;
+
+        int year;
+        if (yearStr != null)
+        {
+            if (!int.TryParse(yearStr, out year)) return null;
+        }
+        else
+        {
+            year = today.Year;
+        }
+
+        if (month < 1 || month > 12 || day < 1 || day > DateTime.DaysInMonth(year, month)) return null;
+
+        var date = new DateTime(year, month, day);
+        // Nếu không có năm và ngày đã qua → thử năm sau
+        if (yearStr == null && date.Date < today)
+            date = new DateTime(year + 1, month, day);
+
+        return date.Date;
+    }
+
+    private static DateTime GetWeekendDate(DateTime today, bool nextWeek)
+    {
+        // Trả về Saturday gần nhất (≥ today), nextWeek = Saturday tuần sau đó
+        var daysUntilSat = ((int)DayOfWeek.Saturday - (int)today.DayOfWeek + 7) % 7;
+        var nearestSat = today.AddDays(daysUntilSat);
+        return nextWeek ? nearestSat.AddDays(7) : nearestSat;
+    }
+
+    private static string NormalizeWeekdayText(string text)
+    {
+        // "thứ7" → "thứ 7", "thứ  2" → "thứ 2"
+        return Regex.Replace(text.Trim(), @"thứ\s*([2-7])", "thứ $1");
     }
 
     private static DateTime? ResolveWeekdayRelativeDate(string weekdayText, string relativeText, DateTime today)
