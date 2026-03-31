@@ -1,0 +1,17 @@
+AmenityId,Name,VietnameseName,Category,Description,Icon,IsComplimentary,Fee,OperatingHours,IsActive
+AM001,Wi-Fi,Wifi mien phi,InRoom,Wifi mien phi trong phong va khu vuc cong cong.,WiFi,TRUE,0,24/7,TRUE
+AM002,Air Conditioning,Dieu hoa,InRoom,He thong dieu hoa trong phong.,AC,TRUE,0,24/7,TRUE
+AM003,Television,TV,InRoom,TV man hinh phang trong phong.,TV,TRUE,0,24/7,TRUE
+AM004,Hair Dryer,May say toc,InRoom,May say toc duoc trang bi san trong phong.,HairDryer,TRUE,0,24/7,TRUE
+AM005,Bath Amenities,Do dung phong tam,InRoom,Bo amenity phong tam co ban.,Bath,TRUE,0,24/7,TRUE
+AM006,Rain Shower,Phong tam voi sen tam dung,InRoom,Phong tam voi rain shower trong nhieu hang phong khach san.,Shower,TRUE,0,24/7,TRUE
+AM007,Balcony,Ban cong,InRoom,Ban cong rieng huong thanh pho hoac huong bien tuy hang phong.,Balcony,TRUE,0,24/7,TRUE
+AM008,Daily Housekeeping,Don phong hang ngay,Service,Dich vu don phong hang ngay.,Housekeeping,TRUE,0,Daily,TRUE
+AM009,Room Service,Room service,Service,Dich vu phuc vu do an/thuc uong tai phong.,RoomService,FALSE,0,Theo gio hoat dong,TRUE
+AM010,Fitness Centre,Phong gym,Hotel,Phong gym trong khuon vien khach san.,Gym,TRUE,0,24/7,TRUE
+AM011,Swimming Pool,Ho boi,Hotel,Khu ho boi cua khach san.,Pool,TRUE,0,Theo gio hoat dong,TRUE
+AM012,On-site Parking,Bai do xe tai cho,Hotel,Bai do xe trong khuon vien khach san.,Parking,TRUE,0,24/7,TRUE
+AM013,Club Lounge Access,Quyen vao Club Lounge,Hotel,Quyen vao Club InterContinental Lounge cho hang phong duoc ap dung.,Lounge,TRUE,0,Theo gio lounge,TRUE
+AM014,Separate Living Area,Khu vuc phong khach rieng,InRoom,Khong gian tiep khach rieng trong cac hang suite.,LivingArea,TRUE,0,24/7,TRUE
+AM015,Cookbook Cafe,Nha hang Cookbook Cafe,Hotel,"Nha hang onsite phuc vu bua sang, bua trua va bua toi.",Restaurant,FALSE,0,Breakfast - Lunch - Dinner,TRUE
+AM016,Spa,Spa,Hotel,Dich vu spa va tri lieu thu gian cua InterContinental Nha Trang.,Spa,FALSE,0,Theo lich dat truoc,TRUE

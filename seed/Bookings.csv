@@ -1,0 +1,1 @@
+HotelId,BookingId,GuestName,GuestPhone,GuestEmail,GuestIdCard,Nationality,RoomId,RoomNumber,RoomType,CheckInDate,CheckOutDate,TotalNights,NumAdults,NumChildren,SpecialRequests,RoomRate,TotalAmount,PromoCode,DiscountAmount,FinalAmount,BreakfastIncluded,PaymentMethod,PaymentStatus,BookingStatus,BookingChannel,SessionId,CreatedAt,UpdatedAt,Notes

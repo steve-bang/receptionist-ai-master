@@ -1,0 +1,9 @@
+FaqId,Category,Question,Answer,Keywords,Priority,IsActive
+faq_001,CheckIn,Khach san check-in luc may gio?,Gio check-in tieu chuan la 15:00 va check-out la 12:00.,"checkin,gio nhan phong,checkout",1,TRUE
+faq_002,Internet,Khach san co wifi mien phi khong?,Co. InterContinental Nha Trang co wifi mien phi cho khach luu tru.,"wifi,internet,mien phi",1,TRUE
+faq_003,Parking,Khach san co bai do xe khong?,Co. Khach san co bai do xe tai cho danh cho khach.,"parking,bai do xe,o to",2,TRUE
+faq_004,Pets,Khach san co cho phep thu cung khong?,Khong. Thu cung khong duoc phep tai InterContinental Nha Trang.,"pet,thu cung,dong vat",1,TRUE
+faq_005,Transport,Khach san co shuttle mien phi khong?,Khach san khong co complimentary local area shuttle.,"shuttle,dua don,xe",2,TRUE
+faq_006,Children,Tre em o day tinh phi nhu the nao?,Tre em duoc chao don; mot so hang phong tinh tre tu 12 tuoi tro len nhu nguoi lon.,"tre em,child,extra bed",2,TRUE
+faq_007,Cancellation,Chinh sach huy phong nhu the nao?,Chinh sach huy phong phu thuoc vao hang phong va muc gia dat tai thoi diem dat phong.,"huy phong,cancellation,refund",1,TRUE
+faq_008,Club,Club InterContinental la gi?,"Club InterContinental Lounge o tang 18, co khong gian trong nha va ngoai troi, check-in/check-out rieng va cac quyen loi bo sung cho hang phong du dieu kien.","club lounge,lounge,club intercontinental",3,TRUE

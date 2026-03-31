@@ -1,0 +1,51 @@
+# macOS
+.DS_Store
+
+# IDE / Editor
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# .NET build artifacts
+[Bb]in/
+[Oo]bj/
+
+# Logs
+logs/
+*.log
+
+# Test / coverage outputs
+TestResults/
+coverage/
+coverage-results/
+*.coverage
+*.coveragexml
+
+# NuGet / local packages
+packages/
+*.nupkg
+*.snupkg
+
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+appsettings.json
+appsettings.*.local.json
+appsettings.Development.json
+src/HotelChatbot.API/credentials/
+
+# OS / temp files
+*.tmp
+*.temp
+*.cache
+Thumbs.db
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3

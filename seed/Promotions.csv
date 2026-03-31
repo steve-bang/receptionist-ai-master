@@ -1,0 +1,1 @@
+HotelId,PromoId,PromoCode,Title,Description,DiscountType,DiscountValue,MinimumStayNights,MinimumSpend,ApplicableRoomTypes,ValidFrom,ValidTo,BookingWindow,Conditions,IsActive,UsageLimit,UsageCount

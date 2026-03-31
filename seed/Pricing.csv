@@ -1,0 +1,5 @@
+HotelId,PricingId,RoomType,WeekdayPrice,WeekendPrice,HolidayPrice,PeakSeasonPrice,Currency,ExtraAdultFee,ExtraChildFee,BreakfastIncluded,BreakfastFee,Notes,ValidFrom,ValidTo
+intercontinental_nhatrang,price_classic_2026,Classic,2950000,3450000,4250000,4650000,VND,900000,450000,No,350000,"Seed operational rate for demo. Hotel, room categories and positioning are factual; update room rates from booking engine before production use.",2026-01-01,2026-12-31
+intercontinental_nhatrang,price_clubclassic_2026,ClubClassic,3650000,4150000,4950000,5350000,VND,900000,450000,Yes,0,Seed operational rate for demo. Includes Club Lounge style positioning.,2026-01-01,2026-12-31
+intercontinental_nhatrang,price_juniorsuite_2026,JuniorSuite,4750000,5350000,6350000,6850000,VND,900000,450000,Yes,0,Seed operational rate for demo. Update from live sell rates before go-live.,2026-01-01,2026-12-31
+intercontinental_nhatrang,price_onebedroom_2026,OneBedroomSuite,7200000,7900000,9200000,9800000,VND,1200000,600000,Yes,0,"Seed operational rate for demo. Based on suite positioning, not a live official quote.",2026-01-01,2026-12-31
