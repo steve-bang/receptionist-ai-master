@@ -18,6 +18,16 @@ public class ConversationService : IConversationService
     private const int MAX_HISTORY = 20; // Keep last 20 messages
     private const int SESSION_TIMEOUT_MINUTES = 30;
 
+    private static readonly string[] LowValuePatterns =
+        ["ok", "oke", "okay", "dạ", "vâng", "ừ", "cảm ơn", "cam on", "thanks", "thank", "hello", "hi", "chào", "chao", "👍", "🙏"];
+
+    private static bool IsLowValueMessage(string message)
+    {
+        var normalized = message.Trim().ToLowerInvariant();
+        return normalized.Length < 20
+            && LowValuePatterns.Any(p => normalized == p || normalized.Contains(p));
+    }
+
     public ConversationService(
         IHotelAIService ai,
         IRagContextService ragContext,
@@ -87,6 +97,29 @@ public class ConversationService : IConversationService
             : request.SessionId;
 
         var session = GetOrCreateSession(sessionId, request.HotelId);
+
+        // Cheap-path: skip cả 2 AI calls cho low-value messages sau khi booking đã hoàn tất
+        // Tránh AI classify sai "cảm ơn", "ok" thành booking_confirm và tạo booking thứ 2
+        if (session.BookingStatus == BookingSessionStatus.Completed && IsLowValueMessage(request.Message))
+        {
+            _logger.LogInformation(
+                "[CheapPath] Session {SessionId} post-booking low-value message, skipping AI calls",
+                sessionId);
+
+            const string templateReply = "Dạ, em rất vui được hỗ trợ anh/chị! 😊 Nếu cần thêm gì, anh/chị cứ nhắn em nhé.";
+            session.Messages.Add(new ConversationMessage { Role = "user", Content = request.Message });
+            session.Messages.Add(new ConversationMessage { Role = "assistant", Content = templateReply });
+            UpdateSession(session);
+
+            return new ChatResponse
+            {
+                SessionId = sessionId,
+                Message = templateReply,
+                Intent = "general",
+                IsBookingComplete = true,
+                BookingId = session.LastBookingId
+            };
+        }
 
         // Analyze intent
         var intent = await _ai.AnalyzeIntentAsync(request.Message, session);

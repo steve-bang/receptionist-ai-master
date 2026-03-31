@@ -52,7 +52,7 @@ Sau booking thành công, `session.BookingDraft` vẫn còn đủ dữ liệu. N
 
 ---
 
-### TASK-02 · Cheap-path cho low-value messages
+### TASK-02 · Cheap-path cho low-value messages `[x]`
 
 **Priority:** P0 · **Effort:** S · **Files:** `ConversationService.cs`
 
@@ -61,7 +61,7 @@ Mọi tin nhắn kể cả `ok`, `dạ` đều tốn 2 AI calls. Tin nhắn xã 
 
 **Việc cần làm:**
 
-- [ ] Thêm static field low-value patterns vào `ConversationService`:
+- [x] Thêm static field low-value patterns vào `ConversationService`:
   ```csharp
   private static readonly HashSet<string> LowValueExactPatterns = new(StringComparer.OrdinalIgnoreCase)
   {
@@ -71,7 +71,7 @@ Mọi tin nhắn kể cả `ok`, `dạ` đều tốn 2 AI calls. Tin nhắn xã 
       "?", ".", "👍", "😊", "🙏"
   };
   ```
-- [ ] Thêm method `IsLowValueMessage(string message)`:
+- [x] Thêm method `IsLowValueMessage(string message)`:
   ```csharp
   private static bool IsLowValueMessage(string message)
   {
@@ -79,7 +79,7 @@ Mọi tin nhắn kể cả `ok`, `dạ` đều tốn 2 AI calls. Tin nhắn xã 
       return normalized.Length <= 20 && LowValueExactPatterns.Contains(normalized);
   }
   ```
-- [ ] Thêm cheap-path block ở đầu `ProcessMessageAsync`, **trước** khi gọi `AnalyzeIntentAsync`:
+- [x] Thêm cheap-path block ở đầu `ProcessMessageAsync`, **trước** khi gọi `AnalyzeIntentAsync`:
   - Nếu `IsLowValueMessage` = true **và** `session.BookingStatus == Completed`:
     - Trả lời template: `"Dạ, anh/chị có cần em hỗ trợ thêm gì không ạ? 😊"`
     - Log: `[LowValueMessage][PostBooking] Skipped AI for session {SessionId}`
@@ -88,9 +88,9 @@ Mọi tin nhắn kể cả `ok`, `dạ` đều tốn 2 AI calls. Tin nhắn xã 
     - Vẫn cho qua flow nhưng log để theo dõi (chưa skip AI giai đoạn này)
 
 **Định nghĩa done:**
-- [ ] Nhắn `cảm ơn` sau booking → không có AI usage log entry nào được tạo
-- [ ] Bot vẫn trả lời tự nhiên
-- [ ] Log xuất hiện dòng `[LowValueMessage][PostBooking]`
+- [x] Nhắn `cảm ơn` sau booking → không có AI usage log entry nào được tạo
+- [x] Bot vẫn trả lời tự nhiên
+- [x] Log xuất hiện dòng `[CheapPath] Session ... post-booking low-value message, skipping AI calls`
 
 ---
 

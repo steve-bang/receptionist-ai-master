@@ -2,6 +2,31 @@
 
 Tài liệu này ghi lại các thay đổi chính của dự án theo hướng thực dụng, tập trung vào những mốc có ảnh hưởng tới sản phẩm, kiến trúc và vận hành.
 
+## [Sprint 1 — Make It Safe] · 2026-03-31
+
+### Fixed
+
+- **[TASK-01] Hậu-booking state guard** — Sau khi booking thành công, session không thể tạo thêm booking thứ 2 dù user nhắn `cảm ơn`, `ok`, hay bất kỳ tin nhắn nào khác trong cùng session.
+  - Thêm `BookingSessionStatus` enum (`None / InProgress / Completed`) vào `ConversationSession`
+  - Thêm field `LastBookingId` để trace booking đã tạo
+  - Guard block trước khi attempt booking: nếu `BookingStatus == Completed` thì skip, log `[BookingGuard]`
+  - Set `BookingStatus = Completed` + reset `BookingDraft` ngay sau khi booking tạo thành công
+  - _Files: `DTOs.cs`, `ConversationService.cs`_
+
+- **[TASK-02] Cheap-path cho low-value messages** — Tin nhắn xã giao sau booking (`cảm ơn`, `ok`, `dạ`, `hello`, v.v.) không còn tốn 2 AI calls nữa.
+  - Thêm `LowValuePatterns[]` với 16 patterns phổ biến
+  - Thêm `IsLowValueMessage()` rule-based (length < 20 + pattern match)
+  - Cheap-path early return ngay đầu `ProcessMessageAsync`: nếu `BookingCompleted` && low-value → trả template, skip hoàn toàn `AnalyzeIntentAsync` + `GetChatCompletionAsync`
+  - _Files: `ConversationService.cs`_
+
+### Changed
+
+- **Booking draft context trong system prompt** — `BookingDraft` hiện được inject vào system prompt dưới dạng "GROUND TRUTH" khi có data. AI bắt buộc đọc đúng ngày check-in/out, số đêm, tên khách từ draft thay vì tự suy từ conversation history — khắc phục tình trạng AI báo sai ngày/giá trong booking summary.
+  - Thêm `BuildBookingDraftContext()` method
+  - _Files: `ConversationService.cs`_
+
+---
+
 ## Unreleased
 
 ### Added
@@ -68,8 +93,8 @@ Tài liệu này ghi lại các thay đổi chính của dự án theo hướng 
 ### Notes
 
 - Một số hạng mục production-hardening vẫn đang nằm trong backlog, đặc biệt:
-  - hậu-booking state guard
-  - idempotency cho booking
+  - idempotency cho booking (TASK-03)
+  - fix `new Random()` mỗi lần — booking ID có thể trùng (TASK-04)
+  - `pageId -> hotelId` mapping khi scale multi-hotel (TASK-05)
   - active booking context
   - customer memory dài hạn
-  - `pageId -> hotelId` mapping khi scale multi-hotel
